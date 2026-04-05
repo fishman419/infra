@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+*.o
+*.so
+*.dylib
+*.exe
+
+# Compiled binaries
+examples/basic_usage
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.dSYM/
+*.pdb
+
+# Temporary files
+*.tmp
+*.temp
