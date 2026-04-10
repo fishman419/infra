@@ -4,6 +4,7 @@
 #include <iostream>
 #include <stdint.h>
 #include <sys/mman.h>
+#include "common.h"
 
 namespace infra {
 
@@ -13,7 +14,7 @@ public:
 
   int Init() {
     uint64_t memory_size =
-        ((sizeof(T) * slab_count_) + (kPageSize + 1)) / kPageSize * kPageSize;
+        ((sizeof(T) * slab_count_) + (infra::kPageSize + 1)) / infra::kPageSize * infra::kPageSize;
     void *ptr = mmap(NULL, memory_size, PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (ptr == (void *)-1) {
@@ -63,7 +64,6 @@ public:
   }
 
 private:
-  static const uint64_t kPageSize = 4096UL;
   static const uint64_t kMaxRegion = 8;
 
   struct MemoryRegion {

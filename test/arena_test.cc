@@ -2,7 +2,6 @@
 #include <iostream>
 #include <vector>
 #include <thread>
-#include <chrono>
 #include <cassert>
 
 // Helper function to print test header
@@ -128,6 +127,7 @@ void test_thread_safety() {
 
     const int num_threads = 2;
     const int allocations_per_thread = 20;
+    (void)allocations_per_thread;
     std::vector<std::thread> threads;
 
     for (int i = 0; i < num_threads; ++i) {

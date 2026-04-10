@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 #include <new>
+#include "common.h"
 
 namespace infra {
 
@@ -35,7 +36,7 @@ class Slab {
 public:
     explicit Slab(size_t object_size, size_t object_count)
         : object_size_(object_size), object_count_(object_count) {
-        memory_size_ = ((object_size_ * object_count_) + (kPageSize + 1)) / kPageSize * kPageSize;
+        memory_size_ = ((object_size_ * object_count_) + (infra::kPageSize + 1)) / infra::kPageSize * infra::kPageSize;
         void* ptr = mmap(nullptr, memory_size_, PROT_READ | PROT_WRITE,
                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (ptr == MAP_FAILED) {
@@ -124,7 +125,6 @@ public:
     size_t object_size() const { return object_size_; }
 
 private:
-    static const size_t kPageSize = 4096;
     uint8_t* base_ = nullptr;
     size_t memory_size_ = 0;
     size_t object_size_ = 0;

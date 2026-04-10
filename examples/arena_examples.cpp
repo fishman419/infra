@@ -19,6 +19,7 @@ void example_basic_usage() {
     // Allocate some memory
     int* numbers = static_cast<int*>(arena.allocate(100 * sizeof(int)));
     double* values = static_cast<double*>(arena.allocate(50 * sizeof(double), 64));
+    (void)values;
 
     // Use the memory
     for (int i = 0; i < 100; ++i) {
