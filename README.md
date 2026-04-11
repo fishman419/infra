@@ -1,46 +1,132 @@
 # Infra
 
-Infrastructure components for high-performance memory management.
+Infrastructure components for high-performance memory management in C++.
+
+All components are header-only, require C++11, and follow consistent coding conventions.
 
 ## Overview
 
-The Infra project provides a slab allocator implementation optimized for high-performance systems. The slab allocator is designed to efficiently manage and reuse fixed-size memory objects, reducing allocation overhead and improving memory locality.
+The Infra project provides a collection of memory management components optimized for high-performance systems:
+
+- **Arena/Linear Allocator** - fast bump allocation with optional deallocation support
+- **Object Pool** - pre-allocated object pool for fixed-size objects with optional thread safety
+- **Stack Allocator** - stack-based allocation with marker-based rollback
+- **Slab Allocator** - efficient fixed-size object allocation
+- **Buddy Allocator** - binary buddy memory allocation for variable-size blocks with minimal fragmentation
+- **PMR Memory Resource** - C++17 `std::pmr::memory_resource` adapter for all Infra allocators
 
 ## Components
 
+### Arena (`memory/arena.h`)
+
+Fast bump-pointer (linear) allocator that supports:
+- Single-shot reset deallocation
+- Compile-time thread safety selection (single-threaded `ArenaST` / multi-threaded `ArenaMT`)
+- Automatic growth when out of space
+- Optional embedded SLAB allocator for small allocations to reduce fragmentation
+- `shrink_to_fit` support to release unused memory
+
+**Features:**
+- **Ultra-fast allocation**: O(1) bump pointer allocation
+- **Alignment support**: arbitrary alignment for all allocations
+- **Memory efficiency**: only minimal metadata overhead
+
+```cpp
+#include "memory/arena.h"
+
+infra::ArenaST arena(4096);
+void* ptr = arena.allocate(256);
+// ... use ptr ...
+arena.reset(); // Reset entire arena
+```
+
+### Object Pool (`memory/object_pool.h`)
+
+Pre-allocated pool of fixed-size objects:
+- Compile-time thread safety selection
+- Automatic dynamic growth when pool is exhausted
+- Type-safe templated design
+- O(1) acquire/release
+
+```cpp
+#include "memory/object_pool.h"
+
+infra::ObjectPool<MyObject, true> pool; // thread-safe
+MyObject* obj = pool.acquire();
+// ... use obj ...
+pool.release(obj);
+```
+
+### Stack Allocator (`memory/stack_allocator.h`)
+
+Stack-based allocator with marker-based rollback:
+- Perfect for short-lived allocations that can be rolled back in bulk
+- Marker-based deallocation allows partial stack clearing
+- Compile-time thread safety selection
+- Alignment support
+
+```cpp
+#include "memory/stack_allocator.h"
+
+infra::StackAllocatorST allocator(1024 * 1024);
+auto marker = allocator.getMarker();
+void* temp1 = allocator.allocate(128);
+void* temp2 = allocator.rollback(marker); // Free temp1 and temp2
+```
+
 ### Slab Allocator (`memory/slab.h`)
 
-A generic template-based slab allocator that:
-
-- Allocates memory in pages-aligned chunks for optimal performance
+Generic template-based slab allocator optimized for fixed-size objects:
+- Allocates memory in page-aligned chunks
 - Maintains free lists for fast object reuse
-- Uses `mmap/munmap` for memory management
-- Supports configurable slab counts per region
-- Implements basic error handling
-
-#### Features
-
-- **Memory Efficiency**: Allocates memory in page-sized regions to minimize external fragmentation
-- **Fast Allocation/Deallocation**: O(1) operations using free lists
-- **Type-safe**: C++ template-based implementation
-- **Scalable**: Supports multiple memory regions for large allocation requests
-
-#### Usage
+- Uses `mmap/munmap` for direct OS memory management
 
 ```cpp
 #include "memory/slab.h"
 
-// Create a slab for uint32_t objects with 1024 items
 infra::Slab<uint32_t> slab(1024);
-
-// Initialize the slab
 slab.Init();
-
-// Get an object from the slab
 uint32_t* obj = slab.Get();
-
-// Return the object to the slab
 slab.Put(obj);
+```
+
+### Buddy Allocator (`memory/buddy_allocator.h`)
+
+Classic binary buddy memory allocation for variable-size allocations within a fixed contiguous memory region:
+- O(log n) allocation and deallocation
+- Excellent coalescing behavior minimizes fragmentation
+- Direct OS memory management via mmap
+- Free block statistics available for debugging
+
+Perfect for fixed-size memory pools where you need variable-sized allocations and minimal fragmentation.
+
+```cpp
+#include "memory/buddy_allocator.h"
+
+infra::BuddyAllocator allocator(4 * 1024 * 1024, 16); // 4MB total, 16-byte min block
+void* p1 = allocator.allocate(256);
+void* p2 = allocator.allocate(1024);
+allocator.deallocate(p1);
+allocator.deallocate(p2);
+```
+
+### PMRMemoryResource (`memory/pmr_memory_resource.h`)
+
+Adapter to convert any Infra allocator to C++17 `std::pmr::memory_resource` for use with polymorphic memory allocator containers:
+- Works with all existing Infra allocators
+- Zero overhead wrapper
+- Enables use of `std::pmr::vector`, `std::pmr::string`, etc. with custom allocators
+
+```cpp
+#if __cplusplus >= 201703L
+#include "memory/pmr_memory_resource.h"
+#include "memory/arena.h"
+
+infra::ArenaMT arena(1024 * 1024);
+infra::ArenaPMRMT pmr(&arena);
+std::pmr::vector<int> vec(&pmr);
+vec.push_back(42); // Allocated from arena
+#endif
 ```
 
 ## Building and Testing
@@ -49,58 +135,44 @@ slab.Put(obj);
 
 - C++ compiler (supporting C++11 or later)
 - Standard libraries: `iostream`, `stdint.h`, `sys/mman.h`
+- pthreads for multi-threaded tests
 
 ### Compilation
 
 ```bash
-# Compile the test
-g++ memory/slab_test.cc -o slab_test
-
-# Run the test
-./slab_test
+make all            # Build all tests
+make test-all        # Run all tests
+make test-buddy-allocator  # Run just buddy allocator tests
 ```
 
-## Memory Layout
+### Output
 
-The slab allocator organizes memory into regions, each containing:
-
-- A contiguous memory block allocated via `mmap`
-- A free list tracking available objects
-- Metadata about the region (size, count)
-
-Each region's size is page-aligned to ensure efficient memory usage:
-
-```
-Memory Region
-┌─────────────────────────────────────┐
-│ Page 1: Objects 0-1023              │
-├─────────────────────────────────────┤
-│ Page 2: (if needed)                 │
-└─────────────────────────────────────┘
-```
+All tests print pass/fail status to stdout. If all tests pass, you're good to go!
 
 ## Performance Characteristics
 
-- **Allocation Time**: O(1) - constant time for object acquisition
-- **Deallocation Time**: O(1) - constant time for object release
-- **Memory Overhead**: Minimal overhead per object (only the free list)
-- **Memory Locality**: Objects of the same type are stored contiguously
+| Component          | Allocation | Deallocation | Thread Safety | Best For |
+|--------------------|------------|--------------|-------------|----------|
+| Arena              | O(1)       | Bulk reset   | Optional    | Short-lived allocations, arenas |
+| Object Pool        | O(1)       | O(1)        | Optional    | Reuse of fixed-size objects |
+| Stack Allocator    | O(1)       | O(1) rollback | Optional | Temporary allocations that can be rolled back |
+| Slab              | O(1)       | O(1)        | No         | Fixed-size kernel-style object allocation |
+| Buddy Allocator   | O(log n)    | O(log n)     | No         | Variable-size allocations in fixed memory pool |
 
-## Limitations
+## Project Structure
 
-1. Single region implementation (can be extended to multiple regions)
-2. No thread safety (mutex locks would need to be added for concurrent use)
-3. Fixed object size per slab instance
-4. Basic error reporting (prints to stderr)
+```
+infra/
+├── memory/          # Core header-only memory management components
+├── test/            # Test files (one per component)
+├── examples/        # Usage examples
+├── docs/            # Documentation
+└── Makefile         # Build system
+```
 
-## Future Enhancements
+## Coding Guidelines
 
-- Multi-region support for larger allocation sizes
-- Thread-safe implementation with mutex locks
-- Custom memory allocators (replacing mmap)
-- Statistics tracking (allocations, deallocations, hits/misses)
-- Memory usage reporting
-- Support for variable-sized objects
+See [CLAUDE.md](CLAUDE.md) for project coding conventions.
 
 ## License
 
@@ -108,4 +180,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Author
 
-fishman, 2022
+fishman
