@@ -70,7 +70,7 @@ public:
         memset(split_bits_, 0, sizeof(uint64_t) * offset);
 
         // Add the entire memory as one free block at max_order
-        free_list_add(max_order_, 0);
+        freeListAdd(max_order_, 0);
 
         used_size_ = 0;
     }
@@ -99,7 +99,7 @@ public:
         }
 
         // Calculate required order
-        size_t order = get_order_for_size(size);
+        size_t order = getOrderForSize(size);
         if (order > max_order_) {
             return nullptr;
         }
@@ -118,20 +118,20 @@ public:
         // Split blocks until we get to the required order
         while (current_order > order) {
             // Split a block from current_order into two blocks at current_order - 1
-            uintptr_t block_index = free_list_remove(current_order);
-            split_bit_set(current_order, block_index);  // Mark parent as split
+            uintptr_t block_index = freeListRemove(current_order);
+            splitBitSet(current_order, block_index);  // Mark parent as split
             // Left child starts at block_index (order current_order -1) - it wasn't split, already 0 because we initialize all to 0
             // No need to clear, it's already 0 from initialization
-            free_list_add(current_order - 1, get_buddy_index(block_index, current_order - 1));
-            free_list_add(current_order - 1, block_index);
+            freeListAdd(current_order - 1, getBuddyIndex(block_index, current_order - 1));
+            freeListAdd(current_order - 1, block_index);
             current_order--;
         }
 
         // Allocate the block
-        uintptr_t block_index = free_list_remove(order);
-        allocated_bit_set(block_index);
+        uintptr_t block_index = freeListRemove(order);
+        allocatedBitSet(block_index);
         block_order_[block_index] = static_cast<uint8_t>(order);
-        size_t block_size = block_size_for_order(order);
+        size_t block_size = blockSizeForOrder(order);
         used_size_ += block_size;
 
         // Calculate address from index
@@ -156,14 +156,14 @@ public:
         uintptr_t block_index = offset / min_block_size_;
 
         // Find order of the block - we need to find the highest order that contains this index
-        int order = get_order_of_block(block_index);
-        if (order < 0 || !is_allocated(block_index)) {
+        int order = getOrderOfBlock(block_index);
+        if (order < 0 || !isAllocated(block_index)) {
             // Not allocated - ignore
             return;
         }
 
-        size_t block_size = block_size_for_order(static_cast<size_t>(order));
-        allocated_bit_clear(block_index);
+        size_t block_size = blockSizeForOrder(static_cast<size_t>(order));
+        allocatedBitClear(block_index);
         block_order_[block_index] = 0xFF;
         if (used_size_ >= block_size) {
             used_size_ -= block_size;
@@ -173,25 +173,25 @@ public:
 
         // Merge with buddy if possible
         while (static_cast<size_t>(order) < max_order_) {
-            uintptr_t buddy_index = get_buddy_index(block_index, static_cast<size_t>(order));
-            if (is_allocated(buddy_index) || is_split(static_cast<size_t>(order), buddy_index)) {
+            uintptr_t buddy_index = getBuddyIndex(block_index, static_cast<size_t>(order));
+            if (isAllocated(buddy_index) || isSplit(static_cast<size_t>(order), buddy_index)) {
                 // Buddy is either allocated or split - can't merge
                 break;
             }
 
             // Remove buddy from free list
-            if (!remove_from_free_list(static_cast<int>(order), buddy_index)) {
+            if (!removeFromFreeList(static_cast<int>(order), buddy_index)) {
                 // Buddy not found in free list - already merged or allocated, can't merge
                 break;
             }
 
             // Merge to parent
             block_index = block_index & ~(1ULL << order);
-            split_bit_clear(static_cast<size_t>(order + 1), block_index);
+            splitBitClear(static_cast<size_t>(order + 1), block_index);
             order++;
         }
 
-        free_list_add(static_cast<size_t>(order), block_index);
+        freeListAdd(static_cast<size_t>(order), block_index);
     }
 
     // Get total size
@@ -219,7 +219,7 @@ public:
         while (curr != 0) {
             count++;
             uintptr_t index = curr - 1;
-            curr = get_next(index);
+            curr = getNext(index);
         }
         return count;
     }
@@ -244,12 +244,12 @@ public:
 
 private:
     // Calculate block size for a given order
-    size_t block_size_for_order(int order) const {
+    size_t blockSizeForOrder(int order) const {
         return (1ULL << order) * min_block_size_;
     }
 
     // Get required order for a given allocation size
-    size_t get_order_for_size(size_t size) const {
+    size_t getOrderForSize(size_t size) const {
         if (size <= min_block_size_) {
             return 0;
         }
@@ -262,38 +262,38 @@ private:
     }
 
     // Get buddy index of a block
-    uintptr_t get_buddy_index(uintptr_t index, int order) const {
+    uintptr_t getBuddyIndex(uintptr_t index, int order) const {
         return index ^ (1ULL << order);
     }
 
     // Get the parent block index
-    uintptr_t get_parent_index(uintptr_t index, int order) const {
+    uintptr_t getParentIndex(uintptr_t index, int order) const {
         return index & ~(1ULL << order);
     }
 
     // Check if block index is allocated
-    bool is_allocated(uintptr_t index) const {
+    bool isAllocated(uintptr_t index) const {
         size_t word = index / 64;
         size_t bit = index % 64;
         return (allocated_bits_[word] & (1ULL << bit)) != 0;
     }
 
     // Mark block as allocated
-    void allocated_bit_set(uintptr_t index) {
+    void allocatedBitSet(uintptr_t index) {
         size_t word = index / 64;
         size_t bit = index % 64;
         allocated_bits_[word] |= (1ULL << bit);
     }
 
     // Mark block as free
-    void allocated_bit_clear(uintptr_t index) {
+    void allocatedBitClear(uintptr_t index) {
         size_t word = index / 64;
         size_t bit = index % 64;
         allocated_bits_[word] &= ~(1ULL << bit);
     }
 
     // Check if block at (order, index) is split
-    bool is_split(size_t order, uintptr_t index) const {
+    bool isSplit(size_t order, uintptr_t index) const {
         // index is the starting min block index
         size_t block_k = index >> order;  // block number within this order
         size_t word_offset = split_bitmap_offsets_[order] + (block_k / 64);
@@ -302,7 +302,7 @@ private:
     }
 
     // Mark block at (order, index) as split
-    void split_bit_set(size_t order, uintptr_t index) {
+    void splitBitSet(size_t order, uintptr_t index) {
         size_t block_k = index >> order;
         size_t word_offset = split_bitmap_offsets_[order] + (block_k / 64);
         size_t bit = block_k % 64;
@@ -310,7 +310,7 @@ private:
     }
 
     // Mark block at (order, index) as not split
-    void split_bit_clear(size_t order, uintptr_t index) {
+    void splitBitClear(size_t order, uintptr_t index) {
         size_t block_k = index >> order;
         size_t word_offset = split_bitmap_offsets_[order] + (block_k / 64);
         size_t bit = block_k % 64;
@@ -319,70 +319,70 @@ private:
 
     // Get next pointer from free list node
     // We store (index + 1), 0 means end of list (since 0 is a valid index)
-    uintptr_t get_next(uintptr_t index) const {
+    uintptr_t getNext(uintptr_t index) const {
         uint8_t* addr = base_ + index * min_block_size_;
         uintptr_t stored = *reinterpret_cast<uintptr_t*>(addr);
         return stored == 0 ? 0 : stored - 1;
     }
 
     // Set next pointer - store (index + 1), 0 means end
-    void set_next(uintptr_t index, uintptr_t next) {
+    void setNext(uintptr_t index, uintptr_t next) {
         uint8_t* addr = base_ + index * min_block_size_;
         *reinterpret_cast<uintptr_t*>(addr) = next == 0 ? 0 : next + 1;
     }
 
     // Add block to free list at given order (add to head)
     // We use 0 as invalid (empty list), so block indices are stored +1 in free_lists_
-    void free_list_add(int order, uintptr_t index) {
+    void freeListAdd(int order, uintptr_t index) {
         if (free_lists_[order] != 0) {
             // free_lists_[order] stores (index + 1), need to decode to get next index
             uintptr_t next_index = free_lists_[order] - 1;
-            set_next(index, next_index);
+            setNext(index, next_index);
         } else {
-            set_next(index, 0);
+            setNext(index, 0);
         }
         free_lists_[order] = index + 1;
     }
 
     // Remove and return head from free list
-    uintptr_t free_list_remove(int order) {
+    uintptr_t freeListRemove(int order) {
         uintptr_t index_plus_1 = free_lists_[order];
         uintptr_t index = index_plus_1 - 1;
-        uintptr_t next_index = get_next(index);
+        uintptr_t next_index = getNext(index);
         free_lists_[order] = next_index == 0 ? 0 : (next_index + 1);
         return index;
     }
 
     // Remove a specific index from free list
     // Returns true if successfully removed, false if not found
-    bool remove_from_free_list(int order, uintptr_t index) {
+    bool removeFromFreeList(int order, uintptr_t index) {
         if (free_lists_[order] == 0) {
             return false;
         }
 
         uintptr_t first = free_lists_[order] - 1;
         if (first == index) {
-            uintptr_t next_index = get_next(first);
+            uintptr_t next_index = getNext(first);
             free_lists_[order] = next_index == 0 ? 0 : (next_index + 1);
             return true;
         }
 
         uintptr_t prev = first;
-        uintptr_t curr = get_next(prev);
+        uintptr_t curr = getNext(prev);
         while (curr != 0) {
             if (curr == index) {
-                set_next(prev, get_next(curr));
+                setNext(prev, getNext(curr));
                 return true;
             }
             prev = curr;
-            curr = get_next(prev);
+            curr = getNext(prev);
         }
         // If we get here, didn't find the index
         return false;
     }
 
     // Find the order of an already allocated block
-    int get_order_of_block(uintptr_t index) {
+    int getOrderOfBlock(uintptr_t index) {
         // We store the order directly when we allocate
         if (block_order_[index] == 0xFF) {
             return -1; // Not allocated

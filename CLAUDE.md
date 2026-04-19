@@ -1,23 +1,77 @@
-# Coding Guidelines for Infra Project
+# CLAUDE.md
 
-This document captures the coding conventions and requirements for this project, established through iterative development.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 Infra is a collection of high-performance memory management components for C++ (C++11 required). All components are header-only implementations.
 
-## Directory Structure
+## Quick Commands
+
+```bash
+make all              # Build all tests and examples
+make test-all         # Run all tests
+make test-<component> # Run single component test (e.g., test-arena, test-buddy-allocator)
+make clean            # Remove build artifacts
+clang-format -i memory/*.h test/*.cc  # Format all code
+```
+
+Component test commands:
+- `test-arena` - Arena allocator tests
+- `test-object-pool` - Object pool tests
+- `test-stack-allocator` - Stack allocator tests
+- `test-buddy-allocator` - Buddy allocator tests
+- `test-pmr` - PMR memory resource tests (requires C++17)
+- `test` - Slab allocator tests
+
+## High-Level Architecture
+
+### Memory Component Design Patterns
+
+All allocators follow consistent design principles:
+
+1. **Header-only templates** - No .cpp files, all implementation in headers
+2. **Compile-time configuration** - Thread safety and features selected via template parameters
+3. **Direct OS memory** - Uses `mmap`/`munmap` for page allocation (avoid malloc)
+4. **Zero-overhead abstractions** - Empty base optimization for disabled features
+
+### Component Hierarchy & Relationships
+
+```
+common.h (foundation)
+├── EmptyLock / NoopLockGuard
+├── LockTypeSelector<ThreadSafe>
+└── Utility functions (roundUpToPage, alignUp, etc.)
+
+Memory Components (all depend on common.h):
+├── arena.h           - Bump-pointer allocator with optional embedded slab
+├── object_pool.h     - Fixed-size object pool
+├── stack_allocator.h - Marker-based stack allocation
+├── slab.h            - Page-based fixed-size allocator
+├── buddy_allocator.h - Binary buddy variable-size allocator
+└── pmr_memory_resource.h - C++17 std::pmr adapter (wraps any allocator)
+```
+
+### Key Design Decisions
+
+- **Thread safety**: Optional via `bool ThreadSafe` template parameter. When false, uses empty locks with zero overhead.
+- **Memory ownership**: Allocators that grow own their memory (Arena, ObjectPool); allocators working on fixed regions (BuddyAllocator) do not.
+- **Alignment**: All allocators support arbitrary alignment requests.
+- **Error handling**: Constructors throw on failure; allocation functions return nullptr.
+
+### Directory Structure
 
 ```
 infra/
 ├── memory/          # Core header-only memory management components
-├── test/            # Test files (one file per component)
+├── test/            # Test files (one file per component, *_test.cc)
 ├── examples/        # Usage examples
 ├── docs/            # Documentation
-└── CLAUDE.md        # This file - coding guidelines
+├── Makefile         # Build system
+└── CLAUDE.md        # This file
 ```
 
-## Coding Conventions
+## Coding Guidelines
 
 ### Naming
 

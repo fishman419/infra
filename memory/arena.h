@@ -351,16 +351,10 @@ public:
     }
 
 private:
-    // Empty lock for non-thread-safe version
-    class EmptyLock {
-    public:
-        template <typename U>
-        explicit EmptyLock(U&) {}
-    };
-
-    using lock_guard_type = typename std::conditional<ThreadSafe,
-                                                      std::lock_guard<std::mutex>,
-                                                      EmptyLock>::type;
+    // Lock type selection from common.h
+    using Lock = typename LockTypeSelector<ThreadSafe>::Lock;
+    using LockGuard = typename LockTypeSelector<ThreadSafe>::LockGuard;
+    using lock_guard_type = LockGuard;
 
     // Slab list to manage multiple slabs of same size
     class SlabList {
@@ -439,7 +433,7 @@ private:
 
     // Allocate from slab
     void* allocate_from_slab(size_t size) {
-        lock_guard_type lock(mutex_);
+        LockGuard lock(mutex_);
 
         // Find appropriate slab size
         size_t slab_size = size;
@@ -462,7 +456,7 @@ private:
 
     // Allocate from arena
     void* allocate_from_arena(size_t size, size_t alignment) {
-        lock_guard_type lock(mutex_);
+        LockGuard lock(mutex_);
 
         // Align size
         size_t aligned_size = (size + alignment - 1) & ~(alignment - 1);
@@ -477,7 +471,9 @@ private:
         }
 
         // Allocate from the block
-        void* ptr = align_pointer(static_cast<uint8_t*>(block->base) + block->used, alignment);
+        void* ptr = reinterpret_cast<void*>(infra::alignUp(
+            reinterpret_cast<uintptr_t>(static_cast<uint8_t*>(block->base) + block->used),
+            alignment));
         if (static_cast<uint8_t*>(ptr) + size > static_cast<uint8_t*>(block->base) + block->size) {
             return nullptr;  // Shouldn't happen due to find_block_with_space
         }
@@ -517,23 +513,10 @@ private:
         return nullptr;
     }
 
-    // Align pointer
-    void* align_pointer(void* ptr, size_t alignment) {
-        uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
-        addr = (addr + alignment - 1) & ~(alignment - 1);
-        return reinterpret_cast<void*>(addr);
-    }
-
-    // Calculate fragmentation percentage
-    double calculate_fragmentation() const {
-        if (size() == 0) return 0.0;
-        return (static_cast<double>(available()) / size()) * 100.0;
-    }
-
     // Member variables
     MemoryBlock* blocks_ = nullptr;
     size_t initial_size_;
-    mutable typename std::conditional<ThreadSafe, std::mutex, char>::type mutex_;
+    mutable typename LockTypeSelector<ThreadSafe>::Lock mutex_;
     size_t total_used_ = 0;
     bool leak_detection_enabled_;
 
@@ -552,6 +535,6 @@ private:
 using ArenaMT = Arena<char, true>;    // Thread-safe arena
 using ArenaST = Arena<char, false>;   // Single-threaded arena
 
-} // namespace infra
+}  // namespace infra
 
-#endif // INFRA_ARENA
+#endif  // INFRA_ARENA

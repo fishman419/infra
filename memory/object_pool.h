@@ -204,16 +204,6 @@ private:
     void setNext(T* obj, T* next) {
         *getNext(obj) = next;
     }
-
-    // Check if object is currently in free list
-    bool isInFreeList(T* obj) {
-        T* curr = head_;
-        while (curr) {
-            if (curr == obj) return true;
-            curr = *getNext(curr);
-        }
-        return false;
-    }
 };
 
 // Convenience typedefs
